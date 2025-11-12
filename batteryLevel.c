@@ -32,7 +32,6 @@ int main(int argc, char *argv[]) {
     FILE *fp;
     const char *filename = CHARGE_STORE;
     
-   
     // Open serial port in not-blocking mode
     fd = open(PORT, O_RDWR | O_NOCTTY);
     
@@ -75,9 +74,11 @@ int main(int argc, char *argv[]) {
 
     //printf("Port %s is open. Reading data\n",PORT);
 
-    //Reading loop
-    while (1) {
+    //Reading loop till "*"
+    int doRead = 1;
+    while (doRead) {
         n = read(fd, buffer, sizeof(buffer) - 1);
+        //printf("DBG n=%d\n",n);
         if (n > 0) {
             for (int i = 0; i < n; i++) {
                 if (msg_len < (int)(sizeof(msg) - 1)) {
@@ -92,7 +93,9 @@ int main(int argc, char *argv[]) {
                     
                     charge100= GetChargePercentage(chargeRaw);
                     printf("chargeRaw = %d ==> charge100 = %d\n",chargeRaw,charge100);
-
+                    printf("DBG ending\n");
+                    doRead=0;
+                    
                     
                     fp = fopen(filename, "w");
                     if (fp == NULL) {
@@ -117,9 +120,8 @@ int main(int argc, char *argv[]) {
                 }
             }
         } else if (n < 0 && errno != EAGAIN) {
-            perror("Errore lettura");
+            perror("Error reading serial port");
             break; //in case of while(1) loop
-            //return EXIT_FAILURE; //in case of no while(1) i.e. single shot 
         }
     }
 
