@@ -6,6 +6,8 @@
 #define BATT_HI 16200
 #define BATT_LO 13000
 //#define TOKEN "C="
+#define MSG_MAX_BUF_LEN 256
+#define MSG_MAX_MESSAGE_LEN 1024
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,24 +19,26 @@
 
 int GetChargeRawValue(char* readStr);
 int GetChargePercentage(int rawVal);
+int writeToFile(const char *filename, int charge);
 
 int main(int argc, char *argv[]) {
     int fd;
     struct termios tty;
-    char buffer[256];
-    char msg[1024];
+    char buffer[MSG_MAX_BUF_LEN];
+    char msg[MSG_MAX_MESSAGE_LEN];
     int msg_len = 0;
     ssize_t n;
     
     int chargeRaw;
     int charge100;
+    int dummy=0;
     
-    FILE *fp;
     const char *filename = CHARGE_STORE;
     
-    // Open serial port in not-blocking mode
-    fd = open(PORT, O_RDWR | O_NOCTTY);
+    int firstMarkerFound = 0;
     
+    // Open serial port 
+    fd = open(PORT, O_RDONLY | O_NOCTTY );
     if (fd < 0) {
         perror("Error opening serial port");
         return 1;
@@ -62,8 +66,8 @@ int main(int argc, char *argv[]) {
     tty.c_iflag &= ~(IXON | IXOFF | IXANY);         // no SW flow control
     tty.c_oflag &= ~OPOST;                          // raw output
 
-    tty.c_cc[VMIN]  = 1;  // minimum 1 byte per read()
-    tty.c_cc[VTIME] = 0;  // no timeout
+    tty.c_cc[VMIN]  = 64;   // minimum number of bytes per read(), limit of 64 is due to UART HW buffer
+    tty.c_cc[VTIME] = 1;    // timeout (0.1 sec units)
 
     // Apply configuration
     if (tcsetattr(fd, TCSANOW, &tty) != 0) {
@@ -71,19 +75,32 @@ int main(int argc, char *argv[]) {
         close(fd);
         return 1;
     }
-
+       
     //printf("Port %s is open. Reading data\n",PORT);
 
-    //Reading loop till "*"
+    //Reading loop till '*'
     int doRead = 1;
     while (doRead) {
         n = read(fd, buffer, sizeof(buffer) - 1);
-        //printf("DBG n=%d\n",n);
+        printf("DBG read n=%d\n",n);
         if (n > 0) {
-            for (int i = 0; i < n; i++) {
-                if (msg_len < (int)(sizeof(msg) - 1)) {
-                    msg[msg_len++] = buffer[i];
-                }
+		for (int i = 0; i < n; i++) {
+		
+            		/*
+            		//discard received Bytes until a '*' is found and then start reading
+            		if (!firstMarkerFound && buffer[i] != '*') {
+				//printf(" waiting first '*'\n");
+				continue;
+			}
+			else {
+				//printf("found first '*'\n");
+				firstMarkerFound = 1;
+			}
+			*/
+            
+                	if (msg_len < (int)(sizeof(msg) - 1)) {
+                    		msg[msg_len++] = buffer[i];
+                	}
 
                 if (buffer[i] == '*') {
                     msg[msg_len] = '\0';
@@ -92,36 +109,18 @@ int main(int argc, char *argv[]) {
                     chargeRaw=GetChargeRawValue(msg);
                     
                     charge100= GetChargePercentage(chargeRaw);
-                    printf("chargeRaw = %d ==> charge100 = %d\n",chargeRaw,charge100);
-                    printf("DBG ending\n");
+                    printf("chargeRaw = %d ==> charge100 = %d\n",chargeRaw,charge100);               
+                    
+
+                    writeToFile(filename, charge100);
+
+                    
                     doRead=0;
-                    
-                    
-                    fp = fopen(filename, "w");
-                    if (fp == NULL) {
-                    	printf("Error opening file %s\n",filename);
-                    	return EXIT_FAILURE;
-                    }
-                    
-                    if (fprintf(fp,"%d\n", charge100) < 0) {
-                    	printf("Error writing to file %s\n",filename);
-                    	return EXIT_FAILURE;
-                    }
-                    
-                    if (fflush(fp) != 0) {
-                    	printf("Error flushing file %s\n",filename);
-                    	return EXIT_FAILURE;
-                    }
-                    
-                    if (fclose(fp) != 0) {
-                    	printf("Error closing file %s\n",filename);
-                    	return EXIT_FAILURE;
-                    }  
                 }
             }
         } else if (n < 0 && errno != EAGAIN) {
             perror("Error reading serial port");
-            break; //in case of while(1) loop
+            break; 
         }
     }
 
@@ -187,6 +186,31 @@ int GetChargePercentage(int rawVal) {
 	}
 	
 	return vBatt;
+}
+
+int writeToFile(const char *filename, int charge) {
+	FILE *fp;
+	
+	fp = fopen(filename, "w");
+	if (fp == NULL) {
+		printf("Error opening file %s\n",filename);
+		return EXIT_FAILURE;
+	}
+	
+	if (fprintf(fp,"%d\n", charge) < 0) {
+		printf("Error writing to file %s\n",filename);
+		return EXIT_FAILURE;
+	}
+	
+	if (fflush(fp) != 0) {
+		printf("Error flushing file %s\n",filename);
+		return EXIT_FAILURE;
+	}
+	
+	if (fclose(fp) != 0) {
+		printf("Error closing file %s\n",filename);
+		return EXIT_FAILURE;
+	} 
 }
 
 
