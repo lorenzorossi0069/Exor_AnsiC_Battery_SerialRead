@@ -1,11 +1,12 @@
-/* program to read battery level from serial data from COM2 port */
-/* port is fixed to: /dev/com2 (symlink to /dev/ttymxc1) */
+/* program to read battery level from serial data from COM2 port 
+   port is fixed to: /dev/com2 (symlink to /dev/ttymxc1) 
+   An '*' is the end-of-message marker
+*/
 
 #define PORT "/dev/com2"
 #define CHARGE_STORE "/var/volatile/tmp/charge100.txt"
 #define BATT_HI 16200
 #define BATT_LO 13000
-//#define TOKEN "C="
 #define MSG_MAX_BUF_LEN 256
 #define MSG_MAX_MESSAGE_LEN 1024
 
@@ -22,20 +23,16 @@ int GetChargePercentage(int rawVal);
 int writeToFile(const char *filename, int charge);
 
 int main(int argc, char *argv[]) {
+
     int fd;
     struct termios tty;
     char buffer[MSG_MAX_BUF_LEN];
-    char msg[MSG_MAX_MESSAGE_LEN];
-    int msg_len = 0;
-    ssize_t n;
-    
+    char msg[MSG_MAX_MESSAGE_LEN];  
+    ssize_t n;   
     int chargeRaw;
     int charge100;
-    int dummy=0;
-    
-    const char *filename = CHARGE_STORE;
-    
-    int firstMarkerFound = 0;
+    const char *filename = CHARGE_STORE;  
+   
     
     // Open serial port 
     fd = open(PORT, O_RDONLY | O_NOCTTY );
@@ -76,24 +73,19 @@ int main(int argc, char *argv[]) {
         return 1;
     }
        
-    //printf("Port %s is open. Reading data\n",PORT);
-
-    //Reading loop till '*'
+    int msg_len = 0;
     int doRead = 1;
+    // int firstMarkerFound = 0;  //needed only if initial '*' marker is seeked
     while (doRead) {
         n = read(fd, buffer, sizeof(buffer) - 1);
-        printf("DBG read n=%d\n",n);
         if (n > 0) {
-		for (int i = 0; i < n; i++) {
-		
+		for (int i = 0; i < n; i++) {		
             		/*
-            		//discard received Bytes until a '*' is found and then start reading
+            		//discard received Bytes until first '*' is found, and then start reading till next '*'
             		if (!firstMarkerFound && buffer[i] != '*') {
-				//printf(" waiting first '*'\n");
 				continue;
 			}
 			else {
-				//printf("found first '*'\n");
 				firstMarkerFound = 1;
 			}
 			*/
@@ -102,36 +94,34 @@ int main(int argc, char *argv[]) {
                     		msg[msg_len++] = buffer[i];
                 	}
 
-                if (buffer[i] == '*') {
-                    msg[msg_len] = '\0';
-                    printf("Messaggio completo: %s\n", msg);
-                    msg_len = 0; // resetta per il prossimo messaggio
-                    chargeRaw=GetChargeRawValue(msg);
+                	if (buffer[i] == '*') { //marker of end of message
+                    		msg[msg_len] = '\0';                    
+                    		msg_len = 0;
                     
-                    charge100= GetChargePercentage(chargeRaw);
-                    printf("chargeRaw = %d ==> charge100 = %d\n",chargeRaw,charge100);               
+                    		chargeRaw = GetChargeRawValue(msg);                   
+                    		charge100 = GetChargePercentage(chargeRaw);
                     
-
-                    writeToFile(filename, charge100);
-
-                    
-                    doRead=0;
-                }
-            }
+                    		printf("SerialMessage: %s (%% of charge: %d%% ) \n", msg, charge100);                    
+                    		writeToFile(filename, charge100);    
+                    		doRead=0;
+                	}	
+            	}
         } else if (n < 0 && errno != EAGAIN) {
             perror("Error reading serial port");
             break; 
         }
     }
-
     close(fd);
     return 0;
 }
 
-// V=0 I=0 C=16914 T=65535  WPC=0 BC=0 chg_stat_R=0 current_limit_read= 150 IBAT_mA=-1 *
-
 
 int GetChargeRawValue(char* readStr) {
+
+	/* sample message ('*' marks end)
+	V=0 I=0 C=16914 T=65535  WPC=0 BC=0 chg_stat_R=0 current_limit_read= 150 IBAT_mA=-1 * 
+	*/
+   
 	int C=0;
 	//int V = 0, I = 0, T = 0;
     	//int WPC = 0, BC = 0, chg_stat_R = 0;
@@ -140,7 +130,6 @@ int GetChargeRawValue(char* readStr) {
 	char *saveptr;
 	char *tok = strtok_r(readStr, " ", &saveptr);	
 	while (tok != NULL ) {
-	//printf("tok:  %s \n", tok);
 	
 		if (sscanf(tok, "C=%d", &C) == 1) {}
 		/*else if (sscanf(tok, "V=%d", &V) == 1) {}
@@ -156,8 +145,7 @@ int GetChargeRawValue(char* readStr) {
 	}
 	
 	/*
-	printf("C = %d\n", C);
-	
+	printf("C = %d\n", C);	
 	printf("V = %d\n", V);
     	printf("I = %d\n", I);   	
     	printf("T = %d\n", T);
